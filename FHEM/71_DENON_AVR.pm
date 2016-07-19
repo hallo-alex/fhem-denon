@@ -34,7 +34,19 @@
 #			- rawCommand mit Leerzeichen
 #			- reconnect / disconnect
 #			- SimpleWrite update
-#		
+#	  forked by alex k
+#               - added reading "stateline" to display the status of mServer/iRadio
+#               - now understands to interpret the "NSE0" response to the "NSE" 
+#                 command (NSE0 returns the current state, i.e. "Now Playing",
+#                 "Internet Radio")
+#               - puked a lot of DENON_AVR_SimpleWrite($hash, "NSE") everywhere,
+#                 so stateline updates after a lot of issued commands, even if 
+#                 Ceol Piccolo does not send them on it's own
+#               Might be useful to retrigger my wakeuptimer, if the fucked up firmware
+#               stops playing internet radio before I woke up.... again!
+#               i.e. Call IRadio Favourite 01 if it stops:
+#               fhem> IF ([CeolPiccolo:stateline] ne "Now Playing") (set CeolPiccolo rawCommand FV 01)
+#
 #	  This file is part of fhem.
 #	
 #	  Fhem is free software: you can redistribute it and/or modify
@@ -114,6 +126,8 @@ my %sounds =
 	    "VIDEO_GAME" => "",
 	    "VIRTUAL" => ""
 );
+
+
 
 ###################################
 sub
@@ -265,10 +279,18 @@ DENON_AVR_Parse(@)
 	elsif ($msg =~/SI(.+)/)
 	{
 		readingsBulkUpdate($hash, "input", $1);
+		#probably input changed, request update and set state to ""
+		readingsSingleUpdate($hash, "stateline", "",1); 
+
 	}
 	elsif ($msg =~/MS(.+)/)
 	{
 		readingsBulkUpdate($hash, "sound", $1);
+	}
+	elsif ($msg =~/NSE0(.+)/)
+	{
+		my $stateline = $1;
+		readingsBulkUpdate($hash, "stateline", $1);
 	}
 	else 
 	{
@@ -338,7 +360,7 @@ DENON_AVR_Get($@)
 	return "argument is missing" if (int(@a) != 2);
 	$what = $a[1];
 
-	if ($what =~ /^(power|volumeStraight|volume|volumeDown|volumeUp|mute|input|sound)$/)
+	if ($what =~ /^(power|volumeStraight|volume|volumeDown|volumeUp|mute|input|sound|stateline)$/)
 	{
 		if(defined($hash->{READINGS}{$what}))
 		{
@@ -553,6 +575,7 @@ DENON_AVR_KeepAlive($)
 	Log $ll5, "DENON_AVR_KeepAlive: Called for $name";
 
 	DENON_AVR_SimpleWrite($hash, "PW?"); 
+	
 
 	my $keepalive = AttrVal($name, "keepalive", 5 * 60);
 
@@ -576,7 +599,6 @@ DENON_AVR_Command_SetPower($$)
 	readingsBeginUpdate($hash);	
 	readingsBulkUpdate($hash, "power", $power);
 	readingsEndUpdate($hash, 1);
-	
 	return undef;
 }
 
@@ -594,7 +616,6 @@ DENON_AVR_Command_SetMute($$)
 
 	my $command = $commands{"mute:".lc($mute)};
 	DENON_AVR_SimpleWrite($hash, $command);
-	
 	return undef;
 }
 
@@ -630,6 +651,7 @@ DENON_AVR_Command_SetSound($$)
 	readingsBeginUpdate($hash);
 	readingsBulkUpdate($hash, "sound", $sound);	
 	readingsEndUpdate($hash, 1);
+
 	return undef;
 }
 
@@ -644,7 +666,7 @@ DENON_AVR_Command_SetFavorite($$)
 	Log $ll5, "DENON_AVR_Command_SetFavorite: Called for $name";
 
 	DENON_AVR_SimpleWrite($hash, "ZMFAVORITE".$favorite);
-
+	
 	return undef;
 }
 #####################################
@@ -713,7 +735,12 @@ DENON_AVR_Command_StatusRequest($)
 	DENON_AVR_SimpleWrite($hash, "Z2?");
 	DENON_AVR_SimpleWrite($hash, "Z3?");
 	DENON_AVR_SimpleWrite($hash, "SLP?");
-	
+	if($hash->{INPUT} ne "IRADIO")
+	{
+           readingsSingleUpdate($hash, "stateline", "",1); 
+        }
+	DENON_AVR_SimpleWrite($hash, "NSE");
+
 	return undef;
 }
 
